@@ -28,6 +28,8 @@ Unplug / reconnect the device (or reboot).
 Make sure the first line in [Makefile](./Makefile) is `obj-m := hid-magicmouse.o`.
 
 ```
+sudo apt update
+sudo apt install linux-headers-$(uname -r)
 make
 sudo rmmod hid-magicmouse
 sudo insmod ./hid-magicmouse.ko
