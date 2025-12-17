@@ -22,3 +22,13 @@ sudo udevadm trigger
 
 
 Unplug / reconnect the device (or reboot).
+
+# Update driver.
+
+Make sure the first line in [Makefile](./Makefile) is `obj-m := hid-magicmouse.o`.
+
+```
+make
+sudo rmmod hid-magicmouse
+sudo insmod ./hid-magicmouse.ko
+```
