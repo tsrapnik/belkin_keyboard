@@ -596,6 +596,34 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 			!usage->type)
 		return 0;
 
+	printk(KERN_INFO "type: %d, code: %d, hid: %d, value: %d\n", usage->type, usage->code, usage->hid, value);
+	if((usage->type == 3) )
+	{
+	printk(KERN_INFO "hi");
+		switch(usage->hid)
+		{
+			case 65584:
+			{
+				static __s32 s_old_x;
+				input_event(field->hidinput->input, EV_REL, REL_X, value - s_old_x);
+				printk(KERN_INFO "delta x: %d\n", value - s_old_x);
+				s_old_x = value;
+				return 1;
+				break;
+			}
+			case 65585:
+			{
+				static __s32 s_old_y;
+				input_event(field->hidinput->input, EV_REL, REL_Y, s_old_y - value);
+				printk(KERN_INFO "delta y: %d\n", s_old_y - value);
+				s_old_y = value;
+				return 1;
+				break;
+			}
+		}
+	}
+
+
 	if ((asc->quirks & APPLE_INVERT_HWHEEL) &&
 			usage->code == REL_HWHEEL) {
 		input_event_with_scancode(field->hidinput->input, usage->type,

@@ -1,4 +1,4 @@
-obj-m := hid-magicmouse.o
+obj-m := hid-apple.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)

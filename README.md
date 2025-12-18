@@ -34,3 +34,22 @@ make
 sudo rmmod hid-magicmouse
 sudo insmod ./hid-magicmouse.ko
 ```
+
+# Verify which drivers are used.
+
+```
+ls -l /sys/bus/hid/devices/*/driver
+```
+
+# Unbind and rebind driver.
+
+```
+ls -l /sys/bus/hid/devices/0005:05AC:0239.*/driver
+
+echo -n "0005:05AC:0239.000B" | sudo tee /sys/bus/hid/drivers/apple/unbind
+
+ls -l /sys/bus/hid/devices/0005:05AC:0239.*/driver
+
+echo -n "0005:05AC:0239.000B" | sudo tee /sys/bus/hid/drivers/magicmouse/bind
+
+ls -l /sys/bus/hid/devices/0005:05AC:0239.*/driver
