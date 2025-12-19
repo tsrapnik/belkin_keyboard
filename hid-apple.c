@@ -648,81 +648,36 @@ static int hidinput_apple_event(struct hid_device *hid, struct input_dev *input,
 
 static void store_frame(const touchField_t field, frame_t * const frame)
 {
-	switch(field)
+	static void store_frame(const touchField_t field, frame_t * const frame)
 	{
-		case E_TOUCH_FIELD_TOUCHED_0:
-			frame->finger_count = (value == 1) ? 1 : 0;
-			break;
-		case E_TOUCH_FIELD_TOUCHED_1:
-			if(frame->finger_count == 1)
-			{
-				frame->finger_count = (value == 1) ? 2 : 1;
+		/* touched fields */
+		if (field >= E_TOUCH_FIELD_TOUCHED_0 && field <= E_TOUCH_FIELD_TOUCHED_3) {
+			unsigned int f = field - E_TOUCH_FIELD_TOUCHED_0;
+
+			if (f == 0)
+				frame->finger_count = (value == 1) ? 1 : 0;
+			else if (frame->finger_count == f)
+				frame->finger_count = (value == 1) ? f + 1 : f;
+
+			return;
+		}
+
+		/* ignore time/click fields */
+		if (field == E_TOUCH_FIELD_TOUCH_TIME || field == E_TOUCH_FIELD_CLICKED)
+			return;
+
+		/* coordinate fields X0,Y0,X1,Y1,...,X3,Y3 */
+		if (field >= E_TOUCH_FIELD_X_0 && field <= E_TOUCH_FIELD_Y_3) {
+			unsigned int idx = (field - E_TOUCH_FIELD_X_0) / 2;
+			bool is_x = ((field - E_TOUCH_FIELD_X_0) % 2) == 0;
+
+			if (frame->finger_count >= idx + 1) {
+				if (is_x)
+					frame->fingers[idx].x = value;
+				else
+					frame->fingers[idx].y = value;
 			}
-			break;
-		case E_TOUCH_FIELD_TOUCHED_2:
-			if(frame->finger_count == 2)
-			{
-				frame->finger_count = (value == 1) ? 3 : 2;
-			}
-			break;
-		case E_TOUCH_FIELD_TOUCHED_3:
-			if(frame->finger_count == 3)
-			{
-				frame->finger_count = (value == 1) ? 4 : 3;
-			}
-			break;
-		case E_TOUCH_FIELD_TOUCH_TIME:
-			break;
-		case E_TOUCH_FIELD_CLICKED:
-			break;
-		case E_TOUCH_FIELD_X_0:
-			if(frame->finger_count >= 1)
-			{
-				frame->fingers[0].x = value;
-			}
-			break;
-		case E_TOUCH_FIELD_Y_0:
-			if(frame->finger_count >= 1)
-			{
-				frame->fingers[0].y = value;
-			}
-			break;
-		case E_TOUCH_FIELD_X_1:
-			if(frame->finger_count >= 2)
-			{
-				frame->fingers[1].x = value;
-			}
-			break;
-		case E_TOUCH_FIELD_Y_1:
-			if(frame->finger_count >= 2)
-			{
-				frame->fingers[1].y = value;
-			}
-			break;
-		case E_TOUCH_FIELD_X_2:
-			if(frame->finger_count >= 3)
-			{
-				frame->fingers[2].x = value;
-			}
-			break;
-		case E_TOUCH_FIELD_Y_2:
-			if(frame->finger_count >= 3)
-			{
-				frame->fingers[2].y = value;
-			}
-			break;
-		case E_TOUCH_FIELD_X_3:
-			if(frame->finger_count >= 4)
-			{
-				frame->fingers[3].x = value;
-			}
-			break;
-		case E_TOUCH_FIELD_Y_3:
-			if(frame->finger_count >= 4)
-			{
-				frame->fingers[3].y = value;
-			}
-			break;
+		}
 	}
 }
 
