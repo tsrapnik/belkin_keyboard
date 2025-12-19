@@ -743,8 +743,8 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			if (abs_dy > frame->tap_max_dy) frame->tap_max_dy = abs_dy;
 
 			/* cancel tap if movement too large */
-			if (frame->tap_max_dx > frame->tap_MOVE_THRESH ||
-			    frame->tap_max_dy > frame->tap_MOVE_THRESH)
+			if (frame->tap_max_dx > TAP_MOVE_THRESH ||
+			    frame->tap_max_dy > TAP_MOVE_THRESH)
 			{
 				frame->tap_active = false;
 			}
@@ -759,7 +759,7 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			unsigned long dt_ms =
 				jiffies_to_msecs(jiffies - frame->tap_start_jiffies);
 
-			if (dt_ms <= frame->tap_TIME_MS)
+			if (dt_ms <= TAP_TIME_MS)
 			{
 				/* TAP → left click */
 				input_report_key(dev, BTN_LEFT, 1);
