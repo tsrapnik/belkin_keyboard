@@ -97,9 +97,9 @@ static const struct
 };
 
 #define M_MAX_FINGERS (4u)
-#define TAP_TIME_MS       120     /* max duration */
+#define TAP_TIME_MS       140     /* max duration */
 #define TAP_MOVE_THRESH   10      /* max movement in abs coords */
-#define DRAG_START_MS     120
+#define DRAG_START_MS     140
 #define SCROLL_MULTIPLIER  2   /* larger = faster scroll */
 
 typedef struct {
@@ -123,6 +123,13 @@ typedef struct {
 	__s32 tap_start_y;
 	__s32 tap_max_dx;
 	__s32 tap_max_dy;
+
+	bool two_tap_active;
+	unsigned long two_tap_start_jiffies;
+	__s32 two_tap_start_x[2];
+	__s32 two_tap_start_y[2];
+	__s32 two_tap_max_dx;
+	__s32 two_tap_max_dy;
 } frame_t;
 
 static unsigned int fnmode = 3;
@@ -729,14 +736,25 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		frame->tap_max_dy = 0;
 	}
 	
-	/* ---------- two finger down ---------- */
+	/* ---------- two finger down (possible right tap) ---------- */
 	if (frame->finger_count == 2 && frame->old_finger_count != 2)
 	{
-		/* cancel tap/drag */
+		frame->two_tap_active = true;
+
+		frame->two_tap_start_jiffies = jiffies;
+
+		for (int i = 0; i < 2; i++) {
+			frame->two_tap_start_x[i] = frame->fingers[i].x;
+			frame->two_tap_start_y[i] = frame->fingers[i].y;
+		}
+
+		frame->two_tap_max_dx = 0;
+		frame->two_tap_max_dy = 0;
+
+		/* cancel one-finger tap/drag */
 		frame->tap_active = false;
 
-		if (frame->drag_active)
-		{
+		if (frame->drag_active) {
 			input_report_key(dev, BTN_LEFT, 0);
 			input_sync(dev);
 			frame->drag_active = false;
@@ -813,6 +831,28 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		input_sync(dev);
 	}
 
+	/* ---------- two finger movement ---------- */
+	if (frame->finger_count == 2 && frame->old_finger_count == 2 &&
+		frame->two_tap_active)
+	{
+		for (int i = 0; i < 2; i++) {
+			__s32 dx = abs(frame->fingers[i].x - frame->two_tap_start_x[i]);
+			__s32 dy = abs(frame->fingers[i].y - frame->two_tap_start_y[i]);
+
+			if (dx > frame->two_tap_max_dx)
+				frame->two_tap_max_dx = dx;
+			if (dy > frame->two_tap_max_dy)
+				frame->two_tap_max_dy = dy;
+		}
+
+		/* movement too large → this is scrolling, not tapping */
+		if (frame->two_tap_max_dx > TAP_MOVE_THRESH ||
+			frame->two_tap_max_dy > TAP_MOVE_THRESH)
+		{
+			frame->two_tap_active = false;
+		}
+	}
+
 	/* ---------- finger release ---------- */
 	if (frame->finger_count == 0 && frame->old_finger_count == 1)
 	{
@@ -841,6 +881,25 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		frame->drag_active = false;
 	}
 
+	/* ---------- two finger tap release ---------- */
+	if (frame->finger_count < 2 && frame->old_finger_count == 2)
+	{
+		if (frame->two_tap_active)
+		{
+			unsigned long dt_ms =
+				jiffies_to_msecs(jiffies - frame->two_tap_start_jiffies);
+
+			if (dt_ms <= TAP_TIME_MS)
+			{
+				input_report_key(dev, BTN_RIGHT, 1);
+				input_sync(dev);
+				input_report_key(dev, BTN_RIGHT, 0);
+				input_sync(dev);
+			}
+		}
+
+		frame->two_tap_active = false;
+	}
 
 	/* ---------- store old state ---------- */
 	for (unsigned int i = 0; i < M_MAX_FINGERS; i++)
