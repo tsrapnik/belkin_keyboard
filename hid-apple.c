@@ -106,8 +106,8 @@ typedef struct {
 
 typedef struct {
 	__u8 finger_count;
-    finger_t fingers[MAX_FINGERS];
-    finger_t oldFingers[MAX_FINGERS];
+    finger_t fingers[M_MAX_FINGERS];
+    finger_t oldFingers[M_MAX_FINGERS];
 } frame_t;
 
 static unsigned int fnmode = 3;
@@ -646,7 +646,7 @@ static int hidinput_apple_event(struct hid_device *hid, struct input_dev *input,
 	return 0;
 }
 
-static void store_frame(const touchField_t field, frame_t * const frame)
+static void store_in_frame(const touchField_t field, frame_t * const frame, const __s32 value)
 {
 	/* touched fields */
 	if (field >= E_TOUCH_FIELD_TOUCHED_0 && field <= E_TOUCH_FIELD_TOUCHED_3) {
@@ -679,13 +679,13 @@ static void store_frame(const touchField_t field, frame_t * const frame)
 }
 
 /* Tries to capture the event as the next touch input field. Stores the data in the frame. */
-static bool capture_field(const __u8 type, const __u16 code, touchField_t * const field, frame_t * const frame, bool * const frameComplete)
+static bool capture_field(const __u8 type, const __u16 code, const __s32 value, touchField_t * const field, frame_t * const frame, bool * const frameComplete)
 {
 	const bool isNextField = (s_touchFields[*field].type == type) == (s_touchFields[*field].code == code);
 
 	if(isNextField)
 	{
-		store_frame(*field, frame);
+		store_in_frame(*field, frame, value);
 
 		/* Increment nextField index. */
 		(*field)++;
@@ -702,7 +702,7 @@ static bool capture_field(const __u8 type, const __u16 code, touchField_t * cons
 static void process_frame(frame_t * const frame, struct input_dev *dev)
 {
 	/* Process the captured frame. */
-	pr_info("Processing frame with %u fingers.\n", asc->frame.finger_count);
+	pr_info("Processing frame with %u fingers.\n", frame->finger_count);
 
 	if(frame->finger_count == 1u)
 	{
@@ -724,7 +724,7 @@ static bool touch_event(const __u8 type, const __u16 code, const __s32 value, st
 	pr_info("type: %u, code: %u, value: %d\n", type, code, value);
 
 	bool frameComplete = false;
-	const bool wasTouchEvent = capture_field(type, code, &asc->nextField, &asc->frame, &frameComplete);
+	const bool wasTouchEvent = capture_field(type, code, value, &asc->nextField, &asc->frame, &frameComplete);
 
 	if(frameComplete)
 	{
@@ -732,6 +732,7 @@ static bool touch_event(const __u8 type, const __u16 code, const __s32 value, st
 	}
 
 	return wasTouchEvent;
+}
 
 static int apple_event(struct hid_device *hdev, struct hid_field *field,
 		struct hid_usage *usage, __s32 value)
