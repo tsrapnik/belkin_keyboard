@@ -595,18 +595,17 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 	if (!(hdev->claimed & HID_CLAIMED_INPUT) || !field->hidinput ||
 			!usage->type)
 		return 0;
-
-	printk(KERN_INFO "type: %d, code: %d, hid: %d, value: %d\n", usage->type, usage->code, usage->hid, value);
-	if((usage->type == 3) )
+	
+	pr_info("6type: %u, code: %u, hid: %u, value: %d\n", usage->type, usage->code, usage->hid, value);
+	if((usage->type == 3) && (value != 0))
 	{
-	printk(KERN_INFO "hi");
 		switch(usage->hid)
 		{
 			case 65584:
 			{
 				static __s32 s_old_x;
 				input_event(field->hidinput->input, EV_REL, REL_X, value - s_old_x);
-				printk(KERN_INFO "delta x: %d\n", value - s_old_x);
+				pr_info("input_event(field->hidinput->input, EV_REL, REL_X, %d);\n", value - s_old_x);
 				s_old_x = value;
 				return 1;
 				break;
@@ -615,7 +614,9 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 			{
 				static __s32 s_old_y;
 				input_event(field->hidinput->input, EV_REL, REL_Y, s_old_y - value);
-				printk(KERN_INFO "delta y: %d\n", s_old_y - value);
+				pr_info("input_event(field->hidinput->input, EV_REL, REL_Y, %d);\n", s_old_y - value);
+				input_sync(field->hidinput->input);
+				pr_info("input_sync(field->hidinput->input);");
 				s_old_y = value;
 				return 1;
 				break;
@@ -784,6 +785,7 @@ static int apple_input_configured(struct hid_device *hdev,
 		struct hid_input *hidinput)
 {
 	struct apple_sc *asc = hid_get_drvdata(hdev);
+	struct input_dev *input = hidinput->input;
 
 	if (((asc->quirks & APPLE_HAS_FN) && !asc->fn_found) || apple_is_omoton_kb066(hdev)) {
 		hid_info(hdev, "Fn key not found (Apple Wireless Keyboard clone?), disabling Fn key handling\n");
@@ -793,6 +795,13 @@ static int apple_input_configured(struct hid_device *hdev,
 	if (apple_is_non_apple_keyboard(hdev)) {
 		hid_info(hdev, "Non-apple keyboard detected; function keys will default to fnmode=2 behavior\n");
 		asc->quirks |= APPLE_IS_NON_APPLE;
+	}
+
+	if (hdev->product == USB_DEVICE_ID_APPLE_ALU_WIRELESS_2009_ANSI)
+	{
+		__set_bit(EV_REL, input->evbit);
+		__set_bit(REL_X, input->relbit);
+		__set_bit(REL_Y, input->relbit);
 	}
 
 	return 0;
