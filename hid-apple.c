@@ -107,7 +107,9 @@ typedef struct {
 typedef struct {
 	__u8 finger_count;
     finger_t fingers[M_MAX_FINGERS];
-    finger_t oldFingers[M_MAX_FINGERS];
+
+	__u8 old_finger_count;
+    finger_t old_fingers[M_MAX_FINGERS];
 } frame_t;
 
 static unsigned int fnmode = 3;
@@ -701,28 +703,33 @@ static bool capture_field(const __u8 type, const __u16 code, const __s32 value, 
 
 static void process_frame(frame_t * const frame, struct input_dev *dev)
 {
-	/* Process the captured frame. */
-	pr_info("Processing frame with %u fingers.\n", frame->finger_count);
-
-	if(frame->finger_count == 1u)
+	switch(frame->finger_count)
 	{
-		input_report_rel(dev, REL_X, frame->fingers[0].x - frame->oldFingers[0].x);
-		input_report_rel(dev, REL_Y, frame->oldFingers[0].y - frame->fingers[0].y);
+		case 1:
+			if(frame->old_finger_count != 1)
+			{
+				/* First touch is skipped and just used to store something in the old_* fields, so we can take relative coordinates next call. */
+			}
+			else
+			{
+				input_report_rel(dev, REL_X, frame->fingers[0].x - frame->old_fingers[0].x);
+				input_report_rel(dev, REL_Y, frame->old_fingers[0].y - frame->fingers[0].y);
+			}
+			break;
 	}
 
-	/* Store current fingers as oldFingers for next frame comparison. */
+	/* Store current fingers as old_fingers for next frame comparison. */
 	for(unsigned int i = 0u; i < M_MAX_FINGERS; i++)
 	{
-		frame->oldFingers[i] = frame->fingers[i];
+		frame->old_fingers[i] = frame->fingers[i];
 	}
+	frame->old_finger_count = frame->finger_count;
 
 	input_sync(dev);
 }
 
 static bool touch_event(const __u8 type, const __u16 code, const __s32 value, struct apple_sc *asc, struct input_dev *dev)
 {
-	pr_info("type: %u, code: %u, value: %d\n", type, code, value);
-
 	bool frameComplete = false;
 	const bool wasTouchEvent = capture_field(type, code, value, &asc->nextField, &asc->frame, &frameComplete);
 
