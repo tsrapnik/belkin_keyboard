@@ -54,6 +54,62 @@
 #define APPLE_MAGIC_REPORT_ID_POWER		3
 #define APPLE_MAGIC_REPORT_ID_BRIGHTNESS	1
 
+typedef enum
+{
+	E_TOUCH_FIELD_TOUCHED_0,
+	E_TOUCH_FIELD_TOUCHED_1,
+	E_TOUCH_FIELD_TOUCHED_2,
+	E_TOUCH_FIELD_TOUCHED_3,
+	E_TOUCH_FIELD_TOUCH_TIME,
+	E_TOUCH_FIELD_CLICKED,
+	E_TOUCH_FIELD_X_0,
+	E_TOUCH_FIELD_Y_0,
+	E_TOUCH_FIELD_X_1,
+	E_TOUCH_FIELD_Y_1,
+	E_TOUCH_FIELD_X_2,
+	E_TOUCH_FIELD_Y_2,
+	E_TOUCH_FIELD_X_3,
+	E_TOUCH_FIELD_Y_3,
+
+	E_TOUCH_FIELD_COUNT,
+} touchField_t;
+
+static const struct
+{
+	__u8 type;
+	__u16 code;
+} s_touchFields[E_TOUCH_FIELD_COUNT] =
+{
+	{EV_KEY, BTN_TOUCH},
+	{EV_KEY, BTN_TOUCH},
+	{EV_KEY, BTN_TOUCH},
+	{EV_KEY, BTN_TOUCH},
+	{EV_ABS, ABS_MISC},
+	{EV_KEY, BTN_1},
+	{EV_ABS, ABS_X},
+	{EV_ABS, ABS_Y},
+	{EV_ABS, ABS_X},
+	{EV_ABS, ABS_Y},
+	{EV_ABS, ABS_X},
+	{EV_ABS, ABS_Y},
+	{EV_ABS, ABS_X},
+	{EV_ABS, ABS_Y},
+};
+
+#define M_MAX_FINGERS (4u)
+
+typedef struct {
+    bool touches;
+    __s32 x;
+    __s32 y;
+} finger_t;
+
+typedef struct {
+	__u8 finger_count;
+    finger_t fingers[MAX_FINGERS];
+    finger_t oldFingers[MAX_FINGERS];
+} frame_t;
+
 static unsigned int fnmode = 3;
 module_param(fnmode, uint, 0644);
 MODULE_PARM_DESC(fnmode, "Mode of fn key on Apple keyboards (0 = disabled, "
@@ -118,6 +174,9 @@ struct apple_sc {
 	DECLARE_BITMAP(pressed_numlock, KEY_CNT);
 	struct timer_list battery_timer;
 	struct apple_sc_backlight *backlight;
+
+	frame_t frame; /* Stores all data captured from the touchField_t events. */
+	touchField_t nextField; /* Index of the next touch field we expect to receive. */
 };
 
 struct apple_key_translation {
@@ -365,25 +424,6 @@ static const struct apple_non_apple_keyboard non_apple_keyboards[] = {
 	{ "WKB603" },
 };
 
-static const
-[15773.097591] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
-[15773.097625] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
-[15773.097636] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
-[15773.097644] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
-[15773.097652] hid_apple: 6type: 3, code: 40, hid: 852054, value: 5040
-[15773.097663] hid_apple: 6type: 1, code: BTN_1, hid: 589826, value: 0
-[15773.097671] hid_apple: 6type: 3, code: 0, hid: 65584, value: 1455
-[15773.097678] hid_apple: input_event(field->hidinput->input, EV_REL, REL_X, 0);
-[15773.097684] hid_apple: 6type: 3, code: 1, hid: 65585, value: 630
-[15773.097691] hid_apple: input_event(field->hidinput->input, EV_REL, REL_Y, 0);
-[15773.097729] hid_apple: input_sync(field->hidinput->input);
-[15773.097736] hid_apple: 6type: 3, code: 0, hid: 65584, value: 0
-[15773.097751] hid_apple: 6type: 3, code: 1, hid: 65585, value: 0
-[15773.097760] hid_apple: 6type: 3, code: 0, hid: 65584, value: 0
-[15773.097769] hid_apple: 6type: 3, code: 1, hid: 65585, value: 0
-[15773.097777] hid_apple: 6type: 3, code: 0, hid: 65584, value: 0
-[15773.097786] hid_apple: 6type: 3, code: 1, hid: 65585, value: 0
-
 static bool apple_is_non_apple_keyboard(struct hid_device *hdev)
 {
 	int i;
@@ -606,6 +646,140 @@ static int hidinput_apple_event(struct hid_device *hid, struct input_dev *input,
 	return 0;
 }
 
+static void store_frame(const touchField_t field, frame_t * const frame)
+{
+	switch(field)
+	{
+		case E_TOUCH_FIELD_TOUCHED_0:
+			frame->finger_count = (value == 1) ? 1 : 0;
+			break;
+		case E_TOUCH_FIELD_TOUCHED_1:
+			if(frame->finger_count == 1)
+			{
+				frame->finger_count = (value == 1) ? 2 : 1;
+			}
+			break;
+		case E_TOUCH_FIELD_TOUCHED_2:
+			if(frame->finger_count == 2)
+			{
+				frame->finger_count = (value == 1) ? 3 : 2;
+			}
+			break;
+		case E_TOUCH_FIELD_TOUCHED_3:
+			if(frame->finger_count == 3)
+			{
+				frame->finger_count = (value == 1) ? 4 : 3;
+			}
+			break;
+		case E_TOUCH_FIELD_TOUCH_TIME:
+			break;
+		case E_TOUCH_FIELD_CLICKED:
+			break;
+		case E_TOUCH_FIELD_X_0:
+			if(frame->finger_count >= 1)
+			{
+				frame->fingers[0].x = value;
+			}
+			break;
+		case E_TOUCH_FIELD_Y_0:
+			if(frame->finger_count >= 1)
+			{
+				frame->fingers[0].y = value;
+			}
+			break;
+		case E_TOUCH_FIELD_X_1:
+			if(frame->finger_count >= 2)
+			{
+				frame->fingers[1].x = value;
+			}
+			break;
+		case E_TOUCH_FIELD_Y_1:
+			if(frame->finger_count >= 2)
+			{
+				frame->fingers[1].y = value;
+			}
+			break;
+		case E_TOUCH_FIELD_X_2:
+			if(frame->finger_count >= 3)
+			{
+				frame->fingers[2].x = value;
+			}
+			break;
+		case E_TOUCH_FIELD_Y_2:
+			if(frame->finger_count >= 3)
+			{
+				frame->fingers[2].y = value;
+			}
+			break;
+		case E_TOUCH_FIELD_X_3:
+			if(frame->finger_count >= 4)
+			{
+				frame->fingers[3].x = value;
+			}
+			break;
+		case E_TOUCH_FIELD_Y_3:
+			if(frame->finger_count >= 4)
+			{
+				frame->fingers[3].y = value;
+			}
+			break;
+	}
+}
+
+/* Tries to capture the event as the next touch input field. Stores the n*/
+static bool capture_field(const __u8 type, const __u16 code, touchField_t * const field, frame_t * const frame, bool * const frameComplete)
+{
+	const bool isNextField = (s_touchFields[*field].type == type) == (s_touchFields[*field].code == code);
+
+	if(isNextField)
+	{
+		store_frame(*field, frame);
+
+		/* Increment nextField index. */
+		(*field)++;
+		if(*field >= E_TOUCH_FIELD_COUNT)
+		{
+			*field = (touchField_t)0u;
+		}
+	}
+
+	return isNextField;
+}
+
+static void process_frame(frame_t * const frame, struct input_dev *dev)
+{
+	/* Process the captured frame. */
+	pr_info("Processing frame with %u fingers.\n", asc->frame.finger_count);
+
+	if(frame->finger_count == 1u)
+	{
+		input_report_rel(dev, REL_X, frame->fingers[0].x - frame->oldFingers[0].x);
+		input_report_rel(dev, REL_Y, frame->oldFingers[0].y - frame->fingers[0].y);
+	}
+
+	/* Store current fingers as oldFingers for next frame comparison. */
+	for(unsigned int i = 0u; i < M_MAX_FINGERS; i++)
+	{
+		frame->oldFingers[i] = frame->fingers[i];
+	}
+
+	input_sync(dev);
+}
+
+static bool touch_event(const __u8 type, const __u16 code, const __s32 value, struct apple_sc *asc, struct input_dev *dev)
+{
+	pr_info("type: %u, code: %u, value: %d\n", type, code, value);
+
+	bool frameComplete = false;
+	const bool wasTouchEvent = capture_field(type, code, &asc->nextField, &asc->frame, &frameComplete);
+
+	if(frameComplete)
+	{
+		process_frame(&asc->frame, dev);
+	}
+
+	return wasTouchEvent;
+
 static int apple_event(struct hid_device *hdev, struct hid_field *field,
 		struct hid_usage *usage, __s32 value)
 {
@@ -614,8 +788,12 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 	if (!(hdev->claimed & HID_CLAIMED_INPUT) || !field->hidinput ||
 			!usage->type)
 		return 0;
+
+	if(touch_event(usage->type, usage->code, value, asc, field->hidinput->input))
+	{
+		return 1;
+	}
 	
-	pr_info("6type: %u, code: %u, hid: %u, value: %d\n", usage->type, usage->code, usage->hid, value);
 	if((usage->type == 3) && (value != 0))
 	{
 		switch(usage->hid)
@@ -626,7 +804,7 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 				input_event(field->hidinput->input, EV_REL, REL_X, value - s_old_x);
 				pr_info("input_event(field->hidinput->input, EV_REL, REL_X, %d);\n", value - s_old_x);
 				s_old_x = value;
-				returnji 1;
+				return 1;
 				break;
 			}
 			case 65585:
