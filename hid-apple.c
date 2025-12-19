@@ -1013,6 +1013,10 @@ static int apple_input_configured(struct hid_device *hdev,
 		__set_bit(EV_REL, input->evbit);
 		__set_bit(REL_X, input->relbit);
 		__set_bit(REL_Y, input->relbit);
+
+		__set_bit(BTN_LEFT, input->keybit);
+		__set_bit(BTN_RIGHT, input->keybit);
+		__set_bit(BTN_MIDDLE, input->keybit);
 	}
 
 	return 0;

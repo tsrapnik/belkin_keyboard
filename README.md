@@ -53,3 +53,8 @@ ls -l /sys/bus/hid/devices/0005:05AC:0239.*/driver
 echo -n "0005:05AC:0239.000B" | sudo tee /sys/bus/hid/drivers/magicmouse/bind
 
 ls -l /sys/bus/hid/devices/0005:05AC:0239.*/driver
+```
+
+# Verify which events hid-apple supports.
+
+sudo evtest /dev/input/event21
