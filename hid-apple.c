@@ -100,6 +100,7 @@ static const struct
 #define TAP_TIME_MS       120     /* max duration */
 #define TAP_MOVE_THRESH   10      /* max movement in abs coords */
 #define DRAG_START_MS     120
+#define SCROLL_MULTIPLIER  2   /* larger = faster scroll */
 
 typedef struct {
     bool touches;
@@ -727,6 +728,20 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		frame->tap_max_dx = 0;
 		frame->tap_max_dy = 0;
 	}
+	
+	/* ---------- two finger down ---------- */
+	if (frame->finger_count == 2 && frame->old_finger_count != 2)
+	{
+		/* cancel tap/drag */
+		frame->tap_active = false;
+
+		if (frame->drag_active)
+		{
+			input_report_key(dev, BTN_LEFT, 0);
+			input_sync(dev);
+			frame->drag_active = false;
+		}
+	}
 
 	/* ---------- finger move ---------- */
 	if (frame->finger_count == 1 && frame->old_finger_count == 1)
@@ -772,6 +787,32 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		}
 	}
 
+	/* ---------- two finger scroll ---------- */
+	if (frame->finger_count == 2 && frame->old_finger_count == 2)
+	{
+		__s32 dy0 = frame->fingers[0].y - frame->old_fingers[0].y;
+		__s32 dy1 = frame->fingers[1].y - frame->old_fingers[1].y;
+
+		__s32 dx0 = frame->fingers[0].x - frame->old_fingers[0].x;
+		__s32 dx1 = frame->fingers[1].x - frame->old_fingers[1].x;
+
+		__s32 dy = (dy0 + dy1) / 2;
+		__s32 dx = (dx0 + dx1) / 2;
+
+		/* invert Y for natural scrolling if desired */
+		if (dy != 0)
+		{
+			input_report_rel(dev, REL_WHEEL_HI_RES, -dy * SCROLL_MULTIPLIER);
+		}
+
+		if (dx != 0)
+		{
+			input_report_rel(dev, REL_HWHEEL_HI_RES, -dx * SCROLL_MULTIPLIER);
+		}
+
+		input_sync(dev);
+	}
+
 	/* ---------- finger release ---------- */
 	if (frame->finger_count == 0 && frame->old_finger_count == 1)
 	{
@@ -799,6 +840,7 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		frame->tap_active = false;
 		frame->drag_active = false;
 	}
+
 
 	/* ---------- store old state ---------- */
 	for (unsigned int i = 0; i < M_MAX_FINGERS; i++)
@@ -1040,6 +1082,8 @@ static int apple_input_configured(struct hid_device *hdev,
 		__set_bit(EV_REL, input->evbit);
 		__set_bit(REL_X, input->relbit);
 		__set_bit(REL_Y, input->relbit);
+		__set_bit(REL_WHEEL_HI_RES, input->relbit);
+		__set_bit(REL_HWHEEL_HI_RES, input->relbit);
 
 		__set_bit(BTN_LEFT, input->keybit);
 		__set_bit(BTN_RIGHT, input->keybit);
