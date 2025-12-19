@@ -365,6 +365,25 @@ static const struct apple_non_apple_keyboard non_apple_keyboards[] = {
 	{ "WKB603" },
 };
 
+static const
+[15773.097591] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
+[15773.097625] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
+[15773.097636] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
+[15773.097644] hid_apple: 6type: EV_KEY, code: BTN_TOUCH, hid: 852034, value: 0
+[15773.097652] hid_apple: 6type: 3, code: 40, hid: 852054, value: 5040
+[15773.097663] hid_apple: 6type: 1, code: BTN_1, hid: 589826, value: 0
+[15773.097671] hid_apple: 6type: 3, code: 0, hid: 65584, value: 1455
+[15773.097678] hid_apple: input_event(field->hidinput->input, EV_REL, REL_X, 0);
+[15773.097684] hid_apple: 6type: 3, code: 1, hid: 65585, value: 630
+[15773.097691] hid_apple: input_event(field->hidinput->input, EV_REL, REL_Y, 0);
+[15773.097729] hid_apple: input_sync(field->hidinput->input);
+[15773.097736] hid_apple: 6type: 3, code: 0, hid: 65584, value: 0
+[15773.097751] hid_apple: 6type: 3, code: 1, hid: 65585, value: 0
+[15773.097760] hid_apple: 6type: 3, code: 0, hid: 65584, value: 0
+[15773.097769] hid_apple: 6type: 3, code: 1, hid: 65585, value: 0
+[15773.097777] hid_apple: 6type: 3, code: 0, hid: 65584, value: 0
+[15773.097786] hid_apple: 6type: 3, code: 1, hid: 65585, value: 0
+
 static bool apple_is_non_apple_keyboard(struct hid_device *hdev)
 {
 	int i;
@@ -607,7 +626,7 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 				input_event(field->hidinput->input, EV_REL, REL_X, value - s_old_x);
 				pr_info("input_event(field->hidinput->input, EV_REL, REL_X, %d);\n", value - s_old_x);
 				s_old_x = value;
-				return 1;
+				returnji 1;
 				break;
 			}
 			case 65585:
