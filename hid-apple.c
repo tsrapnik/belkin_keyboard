@@ -97,8 +97,9 @@ static const struct
 };
 
 #define M_MAX_FINGERS (4u)
-#define TAP_TIME_MS        180     /* max duration */
+#define TAP_TIME_MS       120     /* max duration */
 #define TAP_MOVE_THRESH   10      /* max movement in abs coords */
+#define DRAG_START_MS     120
 
 typedef struct {
     bool touches;
@@ -115,6 +116,7 @@ typedef struct {
 
 
 	bool tap_active;
+	bool drag_active;
 	unsigned long tap_start_jiffies;
 	__s32 tap_start_x;
 	__s32 tap_start_y;
@@ -710,13 +712,15 @@ static bool capture_field(const __u8 type, const __u16 code, const __s32 value, 
 
 	return isNextField;
 }
+
 static void process_frame(frame_t * const frame, struct input_dev *dev)
 {
 	/* ---------- finger down ---------- */
 	if (frame->finger_count == 1 && frame->old_finger_count == 0)
 	{
-		/* possible tap start */
 		frame->tap_active = true;
+		frame->drag_active = false;
+
 		frame->tap_start_jiffies = jiffies;
 		frame->tap_start_x = frame->fingers[0].x;
 		frame->tap_start_y = frame->fingers[0].y;
@@ -730,8 +734,13 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		__s32 dx = frame->fingers[0].x - frame->old_fingers[0].x;
 		__s32 dy = frame->old_fingers[0].y - frame->fingers[0].y;
 
+		/* relative cursor movement */
 		input_report_rel(dev, REL_X, dx);
 		input_report_rel(dev, REL_Y, dy);
+		input_sync(dev);
+
+		unsigned long dt_ms =
+			jiffies_to_msecs(jiffies - frame->tap_start_jiffies);
 
 		/* update tap movement */
 		if (frame->tap_active)
@@ -742,9 +751,21 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			if (abs_dx > frame->tap_max_dx) frame->tap_max_dx = abs_dx;
 			if (abs_dy > frame->tap_max_dy) frame->tap_max_dy = abs_dy;
 
-			/* cancel tap if movement too large */
-			if (frame->tap_max_dx > TAP_MOVE_THRESH ||
-			    frame->tap_max_dy > TAP_MOVE_THRESH)
+			/* convert tap → drag */
+			if (!frame->drag_active &&
+			    dt_ms >= DRAG_START_MS &&
+			    frame->tap_max_dx <= TAP_MOVE_THRESH &&
+			    frame->tap_max_dy <= TAP_MOVE_THRESH)
+			{
+				input_report_key(dev, BTN_LEFT, 1);
+				input_sync(dev);
+				frame->drag_active = true;
+			}
+
+			/* cancel tap if moved too far before drag */
+			if (!frame->drag_active &&
+			    (frame->tap_max_dx > TAP_MOVE_THRESH ||
+			     frame->tap_max_dy > TAP_MOVE_THRESH))
 			{
 				frame->tap_active = false;
 			}
@@ -754,21 +775,29 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 	/* ---------- finger release ---------- */
 	if (frame->finger_count == 0 && frame->old_finger_count == 1)
 	{
-		if (frame->tap_active)
-		{
-			unsigned long dt_ms =
-				jiffies_to_msecs(jiffies - frame->tap_start_jiffies);
+		unsigned long dt_ms =
+			jiffies_to_msecs(jiffies - frame->tap_start_jiffies);
 
-			if (dt_ms <= TAP_TIME_MS)
-			{
-				/* TAP → left click */
-				input_report_key(dev, BTN_LEFT, 1);
-				input_sync(dev);
-				input_report_key(dev, BTN_LEFT, 0);
-			}
+		/* tap click */
+		if (frame->tap_active &&
+		    !frame->drag_active &&
+		    dt_ms <= TAP_TIME_MS)
+		{
+			input_report_key(dev, BTN_LEFT, 1);
+			input_sync(dev);
+			input_report_key(dev, BTN_LEFT, 0);
+			input_sync(dev);
+		}
+
+		/* end drag */
+		if (frame->drag_active)
+		{
+			input_report_key(dev, BTN_LEFT, 0);
+			input_sync(dev);
 		}
 
 		frame->tap_active = false;
+		frame->drag_active = false;
 	}
 
 	/* ---------- store old state ---------- */
@@ -777,8 +806,6 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		frame->old_fingers[i] = frame->fingers[i];
 	}
 	frame->old_finger_count = frame->finger_count;
-
-	input_sync(dev);
 }
 
 static bool touch_event(const __u8 type, const __u16 code, const __s32 value, struct apple_sc *asc, struct input_dev *dev)
