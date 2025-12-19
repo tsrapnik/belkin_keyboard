@@ -648,40 +648,37 @@ static int hidinput_apple_event(struct hid_device *hid, struct input_dev *input,
 
 static void store_frame(const touchField_t field, frame_t * const frame)
 {
-	static void store_frame(const touchField_t field, frame_t * const frame)
-	{
-		/* touched fields */
-		if (field >= E_TOUCH_FIELD_TOUCHED_0 && field <= E_TOUCH_FIELD_TOUCHED_3) {
-			unsigned int f = field - E_TOUCH_FIELD_TOUCHED_0;
+	/* touched fields */
+	if (field >= E_TOUCH_FIELD_TOUCHED_0 && field <= E_TOUCH_FIELD_TOUCHED_3) {
+		unsigned int f = field - E_TOUCH_FIELD_TOUCHED_0;
 
-			if (f == 0)
-				frame->finger_count = (value == 1) ? 1 : 0;
-			else if (frame->finger_count == f)
-				frame->finger_count = (value == 1) ? f + 1 : f;
+		if (f == 0)
+			frame->finger_count = (value == 1) ? 1 : 0;
+		else if (frame->finger_count == f)
+			frame->finger_count = (value == 1) ? f + 1 : f;
 
-			return;
-		}
+		return;
+	}
 
-		/* ignore time/click fields */
-		if (field == E_TOUCH_FIELD_TOUCH_TIME || field == E_TOUCH_FIELD_CLICKED)
-			return;
+	/* ignore time/click fields */
+	if (field == E_TOUCH_FIELD_TOUCH_TIME || field == E_TOUCH_FIELD_CLICKED)
+		return;
 
-		/* coordinate fields X0,Y0,X1,Y1,...,X3,Y3 */
-		if (field >= E_TOUCH_FIELD_X_0 && field <= E_TOUCH_FIELD_Y_3) {
-			unsigned int idx = (field - E_TOUCH_FIELD_X_0) / 2;
-			bool is_x = ((field - E_TOUCH_FIELD_X_0) % 2) == 0;
+	/* coordinate fields X0,Y0,X1,Y1,...,X3,Y3 */
+	if (field >= E_TOUCH_FIELD_X_0 && field <= E_TOUCH_FIELD_Y_3) {
+		unsigned int idx = (field - E_TOUCH_FIELD_X_0) / 2;
+		bool is_x = ((field - E_TOUCH_FIELD_X_0) % 2) == 0;
 
-			if (frame->finger_count >= idx + 1) {
-				if (is_x)
-					frame->fingers[idx].x = value;
-				else
-					frame->fingers[idx].y = value;
-			}
+		if (frame->finger_count >= idx + 1) {
+			if (is_x)
+				frame->fingers[idx].x = value;
+			else
+				frame->fingers[idx].y = value;
 		}
 	}
 }
 
-/* Tries to capture the event as the next touch input field. Stores the n*/
+/* Tries to capture the event as the next touch input field. Stores the data in the frame. */
 static bool capture_field(const __u8 type, const __u16 code, touchField_t * const field, frame_t * const frame, bool * const frameComplete)
 {
 	const bool isNextField = (s_touchFields[*field].type == type) == (s_touchFields[*field].code == code);
@@ -695,6 +692,7 @@ static bool capture_field(const __u8 type, const __u16 code, touchField_t * cons
 		if(*field >= E_TOUCH_FIELD_COUNT)
 		{
 			*field = (touchField_t)0u;
+			*frameComplete = true;
 		}
 	}
 
