@@ -58,3 +58,11 @@ ls -l /sys/bus/hid/devices/0005:05AC:0239.*/driver
 # Verify which events hid-apple supports.
 
 sudo evtest /dev/input/event21
+
+# Permanently install driver.
+
+```
+sudo rm /lib/modules/$(uname -r)/kernel/drivers/hid/hid-apple.ko.zst
+sudo cp hid-apple.ko /lib/modules/$(uname -r)/kernel/drivers/hid/
+sudo depmod
+```
