@@ -43,6 +43,7 @@
 #define APPLE_IS_NON_APPLE	BIT(11)
 #define APPLE_MAGIC_BACKLIGHT	BIT(12)
 #define APPLE_DISABLE_FKEYS	BIT(13)
+#define APPLE_BBZ002_TOUCHPAD	BIT(14)
 
 #define APPLE_FLAG_FKEY		BIT(0)
 #define APPLE_FLAG_TB_FKEY	BIT(1)
@@ -53,6 +54,8 @@
 #define HID_USAGE_MAGIC_BL			0xff00000f
 #define APPLE_MAGIC_REPORT_ID_POWER		3
 #define APPLE_MAGIC_REPORT_ID_BRIGHTNESS	1
+#define APPLE_BBZ002_X_USAGE			0x10030
+#define APPLE_BBZ002_Y_USAGE			0x10031
 
 typedef enum
 {
@@ -97,9 +100,12 @@ static const struct
 };
 
 #define M_MAX_FINGERS (4u)
-#define TAP_TIME_MS       140     /* max duration */
-#define TAP_MOVE_THRESH   10      /* max movement in abs coords */
-#define DRAG_START_MS     140
+#define SINGLE_TAP_TIME_MS 250
+#define TWO_FINGER_TAP_TIME_MS 140
+#define TAP_MOVE_THRESH   4       /* max movement for a single-finger tap */
+#define TWO_TAP_MOVE_THRESH 10
+#define DOUBLE_TAP_TIME_MS 500
+#define DOUBLE_TAP_MOVE_THRESH 150
 #define SCROLL_MULTIPLIER  2   /* larger = faster scroll */
 
 typedef struct {
@@ -123,6 +129,10 @@ typedef struct {
 	__s32 tap_start_y;
 	__s32 tap_max_dx;
 	__s32 tap_max_dy;
+	bool last_tap_valid;
+	unsigned long last_tap_jiffies;
+	__s32 last_tap_x;
+	__s32 last_tap_y;
 
 	bool two_tap_active;
 	unsigned long two_tap_start_jiffies;
@@ -130,7 +140,27 @@ typedef struct {
 	__s32 two_tap_start_y[2];
 	__s32 two_tap_max_dx;
 	__s32 two_tap_max_dy;
+	__s32 pointer_x_remainder;
+	__s32 pointer_y_remainder;
 } frame_t;
+
+static unsigned int pointer_speed = 90;
+
+static int param_set_pointer_speed(const char *val,
+				   const struct kernel_param *kp)
+{
+	unsigned long speed;
+
+	if (!val || kstrtoul(val, 0, &speed) || speed < 10 || speed > 100)
+		return -EINVAL;
+
+	pointer_speed = speed;
+	return 0;
+}
+module_param_call(pointer_speed, param_set_pointer_speed, param_get_uint,
+		  &pointer_speed, 0644);
+MODULE_PARM_DESC(pointer_speed,
+		 "BBZ002 pointer speed as a percentage (10 to 100)");
 
 static unsigned int fnmode = 3;
 module_param(fnmode, uint, 0644);
@@ -199,6 +229,12 @@ struct apple_sc {
 
 	frame_t frame; /* Stores all data captured from the touchField_t events. */
 	touchField_t nextField; /* Index of the next touch field we expect to receive. */
+	__s32 bbz002_last_x;
+	__s32 bbz002_last_y;
+	bool bbz002_x_initialized;
+	bool bbz002_y_initialized;
+	__s32 bbz002_x_remainder;
+	__s32 bbz002_y_remainder;
 };
 
 struct apple_key_translation {
@@ -703,7 +739,8 @@ static void store_in_frame(const touchField_t field, frame_t * const frame, cons
 /* Tries to capture the event as the next touch input field. Stores the data in the frame. */
 static bool capture_field(const __u8 type, const __u16 code, const __s32 value, touchField_t * const field, frame_t * const frame, bool * const frameComplete)
 {
-	const bool isNextField = (s_touchFields[*field].type == type) == (s_touchFields[*field].code == code);
+	const bool isNextField = s_touchFields[*field].type == type &&
+		s_touchFields[*field].code == code;
 
 	if(isNextField)
 	{
@@ -721,19 +758,57 @@ static bool capture_field(const __u8 type, const __u16 code, const __s32 value, 
 	return isNextField;
 }
 
+static __s32 apple_scale_bbz002_delta(__s32 delta, __s32 *remainder)
+{
+	s64 scaled = (s64)delta * pointer_speed + *remainder;
+
+	*remainder = scaled % 100;
+	return scaled / 100;
+}
+
+static void apple_note_bbz002_pointer_motion(struct apple_sc *asc,
+					     __s32 dx, __s32 dy)
+{
+	frame_t *frame = &asc->frame;
+
+	if (frame->finger_count != 1 || !frame->tap_active)
+		return;
+
+	frame->tap_max_dx += abs(dx);
+	frame->tap_max_dy += abs(dy);
+	if (frame->tap_max_dx > TAP_MOVE_THRESH ||
+	    frame->tap_max_dy > TAP_MOVE_THRESH) {
+		frame->tap_active = false;
+		frame->last_tap_valid = false;
+	}
+}
+
 static void process_frame(frame_t * const frame, struct input_dev *dev)
 {
 	/* ---------- finger down ---------- */
 	if (frame->finger_count == 1 && frame->old_finger_count == 0)
 	{
-		frame->tap_active = true;
-		frame->drag_active = false;
+		bool double_tap = frame->last_tap_valid &&
+			jiffies_to_msecs(jiffies - frame->last_tap_jiffies) <=
+				DOUBLE_TAP_TIME_MS &&
+			abs(frame->fingers[0].x - frame->last_tap_x) <=
+				DOUBLE_TAP_MOVE_THRESH &&
+			abs(frame->fingers[0].y - frame->last_tap_y) <=
+				DOUBLE_TAP_MOVE_THRESH;
+
+		frame->last_tap_valid = false;
+		frame->tap_active = !double_tap;
+		frame->drag_active = double_tap;
 
 		frame->tap_start_jiffies = jiffies;
 		frame->tap_start_x = frame->fingers[0].x;
 		frame->tap_start_y = frame->fingers[0].y;
 		frame->tap_max_dx = 0;
 		frame->tap_max_dy = 0;
+		if (double_tap) {
+			input_report_key(dev, BTN_LEFT, 1);
+			input_sync(dev);
+		}
 	}
 	
 	/* ---------- two finger down (possible right tap) ---------- */
@@ -753,6 +828,7 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 
 		/* cancel one-finger tap/drag */
 		frame->tap_active = false;
+		frame->last_tap_valid = false;
 
 		if (frame->drag_active) {
 			input_report_key(dev, BTN_LEFT, 0);
@@ -768,12 +844,12 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		__s32 dy = frame->old_fingers[0].y - frame->fingers[0].y;
 
 		/* relative cursor movement */
-		input_report_rel(dev, REL_X, dx);
-		input_report_rel(dev, REL_Y, dy);
-		input_sync(dev);
-
-		unsigned long dt_ms =
-			jiffies_to_msecs(jiffies - frame->tap_start_jiffies);
+		input_report_rel(dev, REL_X,
+				 apple_scale_bbz002_delta(dx,
+							  &frame->pointer_x_remainder));
+		input_report_rel(dev, REL_Y,
+				 apple_scale_bbz002_delta(dy,
+							  &frame->pointer_y_remainder));
 
 		/* update tap movement */
 		if (frame->tap_active)
@@ -784,23 +860,10 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			if (abs_dx > frame->tap_max_dx) frame->tap_max_dx = abs_dx;
 			if (abs_dy > frame->tap_max_dy) frame->tap_max_dy = abs_dy;
 
-			/* convert tap → drag */
-			if (!frame->drag_active &&
-			    dt_ms >= DRAG_START_MS &&
-			    frame->tap_max_dx <= TAP_MOVE_THRESH &&
-			    frame->tap_max_dy <= TAP_MOVE_THRESH)
-			{
-				input_report_key(dev, BTN_LEFT, 1);
-				input_sync(dev);
-				frame->drag_active = true;
-			}
-
-			/* cancel tap if moved too far before drag */
-			if (!frame->drag_active &&
-			    (frame->tap_max_dx > TAP_MOVE_THRESH ||
-			     frame->tap_max_dy > TAP_MOVE_THRESH))
-			{
+			if (frame->tap_max_dx > TAP_MOVE_THRESH ||
+			    frame->tap_max_dy > TAP_MOVE_THRESH) {
 				frame->tap_active = false;
+				frame->last_tap_valid = false;
 			}
 		}
 	}
@@ -828,7 +891,6 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			input_report_rel(dev, REL_HWHEEL_HI_RES, -dx * SCROLL_MULTIPLIER);
 		}
 
-		input_sync(dev);
 	}
 
 	/* ---------- two finger movement ---------- */
@@ -846,8 +908,8 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 		}
 
 		/* movement too large → this is scrolling, not tapping */
-		if (frame->two_tap_max_dx > TAP_MOVE_THRESH ||
-			frame->two_tap_max_dy > TAP_MOVE_THRESH)
+		if (frame->two_tap_max_dx > TWO_TAP_MOVE_THRESH ||
+		    frame->two_tap_max_dy > TWO_TAP_MOVE_THRESH)
 		{
 			frame->two_tap_active = false;
 		}
@@ -860,14 +922,19 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			jiffies_to_msecs(jiffies - frame->tap_start_jiffies);
 
 		/* tap click */
-		if (frame->tap_active &&
-		    !frame->drag_active &&
-		    dt_ms <= TAP_TIME_MS)
-		{
+		if (frame->tap_active && dt_ms <= SINGLE_TAP_TIME_MS &&
+		    frame->tap_max_dx <= TAP_MOVE_THRESH &&
+		    frame->tap_max_dy <= TAP_MOVE_THRESH) {
 			input_report_key(dev, BTN_LEFT, 1);
 			input_sync(dev);
 			input_report_key(dev, BTN_LEFT, 0);
 			input_sync(dev);
+			frame->last_tap_valid = true;
+			frame->last_tap_jiffies = jiffies;
+			frame->last_tap_x = frame->tap_start_x;
+			frame->last_tap_y = frame->tap_start_y;
+		} else {
+			frame->last_tap_valid = false;
 		}
 
 		/* end drag */
@@ -889,7 +956,7 @@ static void process_frame(frame_t * const frame, struct input_dev *dev)
 			unsigned long dt_ms =
 				jiffies_to_msecs(jiffies - frame->two_tap_start_jiffies);
 
-			if (dt_ms <= TAP_TIME_MS)
+			if (dt_ms <= TWO_FINGER_TAP_TIME_MS)
 			{
 				input_report_key(dev, BTN_RIGHT, 1);
 				input_sync(dev);
@@ -931,34 +998,51 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 			!usage->type)
 		return 0;
 
-	if(touch_event(usage->type, usage->code, value, asc, field->hidinput->input))
-	{
-		return 1;
+	if (asc->quirks & APPLE_BBZ002_TOUCHPAD) {
+		if (touch_event(usage->type, usage->code, value, asc,
+				field->hidinput->input))
+			return 1;
 	}
-	
-	if((usage->type == 3) && (value != 0))
-	{
-		switch(usage->hid)
+
+	if ((asc->quirks & APPLE_BBZ002_TOUCHPAD) &&
+	    usage->type == EV_ABS) {
+		switch (usage->hid)
 		{
-			case 65584:
+			case APPLE_BBZ002_X_USAGE:
 			{
-				static __s32 s_old_x;
-				input_event(field->hidinput->input, EV_REL, REL_X, value - s_old_x);
-				pr_info("input_event(field->hidinput->input, EV_REL, REL_X, %d);\n", value - s_old_x);
-				s_old_x = value;
+				if (value == 0)
+					return 1;
+
+				if (asc->bbz002_x_initialized) {
+					__s32 dx = value - asc->bbz002_last_x;
+
+					apple_note_bbz002_pointer_motion(asc, dx, 0);
+					input_report_rel(field->hidinput->input, REL_X,
+						apple_scale_bbz002_delta(
+							dx,
+							&asc->bbz002_x_remainder));
+				}
+				asc->bbz002_last_x = value;
+				asc->bbz002_x_initialized = true;
 				return 1;
-				break;
 			}
-			case 65585:
+			case APPLE_BBZ002_Y_USAGE:
 			{
-				static __s32 s_old_y;
-				input_event(field->hidinput->input, EV_REL, REL_Y, s_old_y - value);
-				pr_info("input_event(field->hidinput->input, EV_REL, REL_Y, %d);\n", s_old_y - value);
-				input_sync(field->hidinput->input);
-				pr_info("input_sync(field->hidinput->input);");
-				s_old_y = value;
+				if (value == 0)
+					return 1;
+
+				if (asc->bbz002_y_initialized) {
+					__s32 dy = asc->bbz002_last_y - value;
+
+					apple_note_bbz002_pointer_motion(asc, 0, dy);
+					input_report_rel(field->hidinput->input, REL_Y,
+						apple_scale_bbz002_delta(
+							dy,
+							&asc->bbz002_y_remainder));
+				}
+				asc->bbz002_last_y = value;
+				asc->bbz002_y_initialized = true;
 				return 1;
-				break;
 			}
 		}
 	}
@@ -1136,7 +1220,7 @@ static int apple_input_configured(struct hid_device *hdev,
 		asc->quirks |= APPLE_IS_NON_APPLE;
 	}
 
-	if (hdev->product == USB_DEVICE_ID_APPLE_ALU_WIRELESS_2009_ANSI)
+	if (asc->quirks & APPLE_BBZ002_TOUCHPAD)
 	{
 		__set_bit(EV_REL, input->evbit);
 		__set_bit(REL_X, input->relbit);
@@ -1563,7 +1647,8 @@ static const struct hid_device_id apple_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_APPLE, USB_DEVICE_ID_APPLE_WELLSPRINGT2_J152F),
 		.driver_data = APPLE_HAS_FN | APPLE_ISO_TILDE_QUIRK | APPLE_DISABLE_FKEYS },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_APPLE, USB_DEVICE_ID_APPLE_ALU_WIRELESS_2009_ANSI),
-		.driver_data = APPLE_NUMLOCK_EMULATION | APPLE_HAS_FN },
+		.driver_data = APPLE_NUMLOCK_EMULATION | APPLE_HAS_FN |
+			APPLE_BBZ002_TOUCHPAD },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_APPLE, USB_DEVICE_ID_APPLE_ALU_WIRELESS_2009_ISO),
 		.driver_data = APPLE_NUMLOCK_EMULATION | APPLE_HAS_FN |
 			APPLE_ISO_TILDE_QUIRK },
