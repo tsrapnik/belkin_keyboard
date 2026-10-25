@@ -1,0 +1,24 @@
+name: Build kernel module
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential linux-headers-generic
+      - name: Build module
+        run: |
+          kdir="$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' -print -quit)"
+          test -n "$kdir"
+          make KDIR="$kdir"
+      - name: Clean generated files
+        run: |
+          kdir="$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' -print -quit)"
+          make clean KDIR="$kdir"
