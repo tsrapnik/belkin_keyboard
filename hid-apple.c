@@ -142,6 +142,7 @@ typedef struct {
 	__s32 two_tap_max_dy;
 	__s32 pointer_x_remainder;
 	__s32 pointer_y_remainder;
+	unsigned long last_frame_jiffies;
 } frame_t;
 
 static unsigned int pointer_speed = 90;
@@ -161,6 +162,25 @@ module_param_call(pointer_speed, param_set_pointer_speed, param_get_uint,
 		  &pointer_speed, 0644);
 MODULE_PARM_DESC(pointer_speed,
 		 "BBZ002 pointer speed as a percentage (10 to 100)");
+
+static unsigned int touch_gap_ms = 100;
+
+static int param_set_touch_gap_ms(const char *val,
+				  const struct kernel_param *kp)
+{
+	unsigned long gap;
+
+	if (!val || kstrtoul(val, 0, &gap) || gap < 10 || gap > 1000)
+		return -EINVAL;
+
+	touch_gap_ms = gap;
+	return 0;
+}
+module_param_call(touch_gap_ms, param_set_touch_gap_ms, param_get_uint,
+		  &touch_gap_ms, 0644);
+MODULE_PARM_DESC(touch_gap_ms,
+		 "BBZ002 report gap in ms after which pointer motion is rebased "
+		 "instead of jumping (10 to 1000)");
 
 static unsigned int fnmode = 3;
 module_param(fnmode, uint, 0644);
@@ -235,6 +255,7 @@ struct apple_sc {
 	bool bbz002_y_initialized;
 	__s32 bbz002_x_remainder;
 	__s32 bbz002_y_remainder;
+	unsigned long bbz002_last_jiffies;
 };
 
 struct apple_key_translation {
@@ -783,8 +804,31 @@ static void apple_note_bbz002_pointer_motion(struct apple_sc *asc,
 	}
 }
 
+/* Returns true if no report arrived for touch_gap_ms, e.g. after a lost lift report. */
+static bool apple_bbz002_report_gap(unsigned long * const last_jiffies)
+{
+	const bool gap = time_after(jiffies, *last_jiffies +
+				    msecs_to_jiffies(touch_gap_ms));
+
+	*last_jiffies = jiffies;
+	return gap;
+}
+
 static void process_frame(frame_t * const frame, struct input_dev *dev)
 {
+	/* ---------- rebase after report gap ---------- */
+	/* A lift report may have been lost. Use the current positions as the
+	 * new baseline so the next stroke does not jump. Tap and drag state is
+	 * kept, so a false positive only skips one motion step.
+	 */
+	if (apple_bbz002_report_gap(&frame->last_frame_jiffies))
+	{
+		for (unsigned int i = 0; i < M_MAX_FINGERS; i++)
+		{
+			frame->old_fingers[i] = frame->fingers[i];
+		}
+	}
+
 	/* ---------- finger down ---------- */
 	if (frame->finger_count == 1 && frame->old_finger_count == 0)
 	{
@@ -984,6 +1028,13 @@ static bool touch_event(const __u8 type, const __u16 code, const __s32 value, st
 	if(frameComplete)
 	{
 		process_frame(&asc->frame, dev);
+
+		/* Finger lifted: next X/Y pointer report starts a new stroke. */
+		if (asc->frame.finger_count == 0)
+		{
+			asc->bbz002_x_initialized = false;
+			asc->bbz002_y_initialized = false;
+		}
 	}
 
 	return wasTouchEvent;
@@ -1002,6 +1053,16 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 		if (touch_event(usage->type, usage->code, value, asc,
 				field->hidinput->input))
 			return 1;
+	}
+
+	if ((asc->quirks & APPLE_BBZ002_TOUCHPAD) &&
+	    usage->type == EV_ABS &&
+	    (usage->hid == APPLE_BBZ002_X_USAGE ||
+	     usage->hid == APPLE_BBZ002_Y_USAGE) &&
+	    apple_bbz002_report_gap(&asc->bbz002_last_jiffies)) {
+		/* Possibly lost lift report: rebase instead of jumping. */
+		asc->bbz002_x_initialized = false;
+		asc->bbz002_y_initialized = false;
 	}
 
 	if ((asc->quirks & APPLE_BBZ002_TOUCHPAD) &&
