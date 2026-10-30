@@ -55,6 +55,8 @@
 #define HID_USAGE_MAGIC_BL			0xff00000f
 #define APPLE_MAGIC_REPORT_ID_POWER		3
 #define APPLE_MAGIC_REPORT_ID_BRIGHTNESS	1
+#define APPLE_BBZ002_KEYBOARD_REPORT_ID		1
+#define APPLE_BBZ002_KEYBOARD_REPORT_SIZE	10
 #define APPLE_BBZ002_TOUCHPAD_REPORT_ID		2
 #define APPLE_BBZ002_TOUCHPAD_REPORT_SIZE	20
 #define APPLE_BBZ002_MAX_CONTACTS		4
@@ -673,6 +675,16 @@ static int apple_raw_event(struct hid_device *hdev, struct hid_report *report,
 {
 	struct apple_sc *asc = hid_get_drvdata(hdev);
 
+	/* On key ghosting the BBZ002 fills the whole keyboard report, including
+	 * the modifier byte, with ErrorRollOver. Drop it to keep the previous
+	 * key state instead of reporting a bogus Left Ctrl press.
+	 */
+	if (asc->touchpad &&
+	    report->id == APPLE_BBZ002_KEYBOARD_REPORT_ID &&
+	    size >= APPLE_BBZ002_KEYBOARD_REPORT_SIZE &&
+	    data[3] == 0x01)
+		return -EPROTO;
+
 	if (asc->touchpad &&
 	    report->id == APPLE_BBZ002_TOUCHPAD_REPORT_ID &&
 	    size >= APPLE_BBZ002_TOUCHPAD_REPORT_SIZE)
@@ -689,6 +701,13 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 	if (!(hdev->claimed & HID_CLAIMED_INPUT) || !field->hidinput ||
 			!usage->type)
 		return 0;
+
+	/* The BBZ002 has no Esc key; use the top-left (§ ±) key instead. */
+	if (asc->touchpad && usage->code == KEY_102ND) {
+		input_event_with_scancode(field->hidinput->input, usage->type,
+				KEY_ESC, usage->hid, value);
+		return 1;
+	}
 
 	if ((asc->quirks & APPLE_INVERT_HWHEEL) &&
 			usage->code == REL_HWHEEL) {
