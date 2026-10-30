@@ -1,5 +1,23 @@
 # Belkin BBZ002 Linux driver
 
+## Quick start
+
+1. Pair the keyboard in the Bluetooth settings.
+2. Run the installer and reboot:
+
+   ```sh
+   sudo ./install.sh
+   sudo reboot
+   ```
+
+That's it. To undo everything: `sudo ./uninstall.sh && sudo reboot`.
+
+The installer is for Debian-based systems such as Pop!_OS and Ubuntu. It
+installs the build dependencies, the driver (with DKMS, so it is rebuilt for
+new kernels) and the Bluetooth connection interval fix, and marks the keyboard
+as trusted so it reconnects by itself. Run it again after updating the
+repository. The sections below explain each part.
+
 This repository contains an experimental out-of-tree Linux HID driver for the
 Belkin BBZ002 keyboard and touchpad. The device identifies over Bluetooth as
 `05ac:0239` and is handled by a customized `hid-apple` driver.

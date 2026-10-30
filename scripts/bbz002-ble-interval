@@ -1,9 +1,12 @@
 #!/bin/sh
-# Pin a BBZ002's Bluetooth LE connection interval to 15 ms (12 x 1.25 ms).
+# Pin a BBZ002's Bluetooth LE connection interval to a fixed value.
 # The keyboard asks for 15-30 ms after connecting and the controller picks
 # 30 ms, which makes touchpad motion steppy. Started by the udev rule with the
 # keyboard's address, e.g. ee:a7:1d:1a:ef:00.
 set -eu
+
+# Connection interval in units of 1.25 ms: 12 = 15 ms.
+interval=12
 
 address=$(printf '%s' "$1" | tr a-f A-F)
 
@@ -13,6 +16,6 @@ for delay in 5 10; do
 	sleep "$delay"
 	handle=$(hcitool con | awk -v address="$address" '$3 == address { print $5 }')
 	[ -n "$handle" ] || exit 0
-	hcitool lecup --handle "$handle" --min 12 --max 12 --latency 23 \
-		--timeout 430
+	hcitool lecup --handle "$handle" --min "$interval" --max "$interval" \
+		--latency 23 --timeout 430
 done
