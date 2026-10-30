@@ -5,8 +5,8 @@ Belkin BBZ002 keyboard and touchpad. The device identifies over Bluetooth as
 `05ac:0239` and is handled by a customized `hid-apple` driver.
 
 The custom module replaces the kernel's `hid_apple` module; it is not an
-independent add-on. The touchpad gesture handling is still being improved.
-The driver has been build-tested on Pop!_OS 24.04 with kernel 6.17.
+independent add-on. The driver has been build-tested on Pop!_OS 24.04 with
+kernel 6.17.
 
 ## Build
 
@@ -26,18 +26,20 @@ make KDIR=/lib/modules/<kernel-version>/build
 
 Clean generated build files with `make clean`.
 
-## Tune pointer speed
+## Touchpad
 
-BBZ002 pointer movement defaults to 90% of the device-reported delta. Fractional
-movement is carried between reports so small movements are not discarded. The
-`pointer_speed` module parameter accepts values from 10 to 100:
+The touchpad is registered as a separate multitouch input device named
+`BELKIN BBZ002 Touchpad`. libinput treats it like any other touchpad, so
+tapping, tap-and-drag, scrolling, gestures and pointer speed are configured in
+the desktop's touchpad settings.
+
+If a lift report is lost, the driver treats a contact that reappears far away
+after a report gap as a new touch. The gap defaults to 100 ms and can be
+adjusted between 10 and 1000 ms:
 
 ```sh
-echo 70 | sudo tee /sys/module/hid_apple/parameters/pointer_speed
+echo 150 | sudo tee /sys/module/hid_apple/parameters/touch_gap_ms
 ```
-
-The change applies immediately and can be adjusted between 10 (slowest) and
-100 (unscaled).
 
 ## Install with DKMS
 
