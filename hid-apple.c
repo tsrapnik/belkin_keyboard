@@ -21,6 +21,7 @@
 #include <linux/hid.h>
 #include <linux/input/mt.h>
 #include <linux/jiffies.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/timer.h>
@@ -66,6 +67,10 @@
 #define APPLE_BBZ002_RES			15
 /* Max displacement (x + y) after a report gap before a contact is a new touch. */
 #define APPLE_BBZ002_JUMP_DIST			150
+/* The scan time counts in 100 us. Each tick adds 0.1% extra, so a device clock
+ * that runs slow cannot fall behind the host and timestamps keep catching up.
+ */
+#define APPLE_BBZ002_SCAN_TICK_NS		100100
 
 static unsigned int touch_gap_ms = 100;
 
@@ -153,6 +158,8 @@ struct apple_sc {
 
 	struct input_dev *touchpad;
 	unsigned long touchpad_last_jiffies;
+	ktime_t touchpad_time;
+	u16 touchpad_scan_time;
 };
 
 struct apple_key_translation {
@@ -623,6 +630,29 @@ static int hidinput_apple_event(struct hid_device *hid, struct input_dev *input,
 }
 
 /*
+ * Bluetooth LE delivers reports on connection event boundaries, so their
+ * arrival times jitter by up to one interval and libinput sees the pointer
+ * speed jump. Timestamp each frame from the device's scan time instead,
+ * anchored to the earliest arrival, which never runs ahead of the host.
+ */
+static ktime_t apple_bbz002_touchpad_time(struct apple_sc *asc, u16 scan_time,
+					  bool restart)
+{
+	ktime_t now = ktime_get();
+	u16 ticks = scan_time - asc->touchpad_scan_time;
+	ktime_t time;
+
+	asc->touchpad_scan_time = scan_time;
+	time = ktime_add_ns(asc->touchpad_time,
+			    (u64)ticks * APPLE_BBZ002_SCAN_TICK_NS);
+	if (restart || ktime_after(time, now))
+		time = now;
+	asc->touchpad_time = time;
+
+	return time;
+}
+
+/*
  * Touchpad report 2: scan time (16 bits), buttons (2 bits + 6 padding), then
  * per contact: tip switch, confidence, index (6 bits), X (12 bits), Y (12 bits).
  * The device's Y axis points up.
@@ -632,17 +662,14 @@ static void apple_bbz002_touchpad_report(struct apple_sc *asc, const u8 *data)
 	struct input_dev *input = asc->touchpad;
 	struct input_mt_pos pos[APPLE_BBZ002_MAX_CONTACTS];
 	int slots[APPLE_BBZ002_MAX_CONTACTS];
-	int dmax = 0;
+	bool gap = time_after(jiffies, asc->touchpad_last_jiffies +
+			      msecs_to_jiffies(touch_gap_ms));
 	int count = 0;
 	int i;
 
-	/* A lift report may have been lost. Treat a contact that reappears far
-	 * away as a new touch instead of letting the old one jump.
-	 */
-	if (time_after(jiffies, asc->touchpad_last_jiffies +
-		       msecs_to_jiffies(touch_gap_ms)))
-		dmax = APPLE_BBZ002_JUMP_DIST;
 	asc->touchpad_last_jiffies = jiffies;
+	input_set_timestamp(input, apple_bbz002_touchpad_time(asc,
+			    data[1] | data[2] << 8, gap));
 
 	for (i = 0; i < APPLE_BBZ002_MAX_CONTACTS; i++) {
 		const u8 *contact = data + 4 + 4 * i;
@@ -656,7 +683,11 @@ static void apple_bbz002_touchpad_report(struct apple_sc *asc, const u8 *data)
 		count++;
 	}
 
-	input_mt_assign_slots(input, slots, pos, count, dmax);
+	/* A lift report may have been lost. Treat a contact that reappears far
+	 * away as a new touch instead of letting the old one jump.
+	 */
+	input_mt_assign_slots(input, slots, pos, count,
+			      gap ? APPLE_BBZ002_JUMP_DIST : 0);
 	for (i = 0; i < count; i++) {
 		input_mt_slot(input, slots[i]);
 		input_mt_report_slot_state(input, MT_TOOL_FINGER, true);
