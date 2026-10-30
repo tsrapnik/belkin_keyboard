@@ -63,7 +63,7 @@ echo 150 | sudo tee /sys/module/hid_apple/parameters/touch_gap_ms
 
 Bluetooth LE delivers touchpad reports in bursts once per connection interval.
 The BBZ002 asks for 15 to 30 ms and Linux ends up at 30 ms, so the pointer
-moves in visible steps. A udev rule can pin the interval to 15 ms a few
+moves in visible steps. A udev rule can pin the interval to 11.25 ms a few
 seconds after the keyboard connects. It uses `hcitool` from the `bluez`
 package:
 

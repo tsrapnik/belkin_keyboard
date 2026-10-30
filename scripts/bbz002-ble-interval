@@ -5,8 +5,9 @@
 # keyboard's address, e.g. ee:a7:1d:1a:ef:00.
 set -eu
 
-# Connection interval in units of 1.25 ms: 12 = 15 ms.
-interval=12
+# Connection interval in units of 1.25 ms: 9 = 11.25 ms, just under the
+# touchpad's ~11.6 ms report period, so reports rarely arrive in pairs.
+interval=9
 
 address=$(printf '%s' "$1" | tr a-f A-F)
 
