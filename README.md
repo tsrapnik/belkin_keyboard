@@ -41,6 +41,27 @@ adjusted between 10 and 1000 ms:
 echo 150 | sudo tee /sys/module/hid_apple/parameters/touch_gap_ms
 ```
 
+### Faster Bluetooth connection interval
+
+Bluetooth LE delivers touchpad reports in bursts once per connection interval.
+The BBZ002 asks for 15 to 30 ms and Linux ends up at 30 ms, so the pointer
+moves in visible steps. A udev rule can pin the interval to 15 ms a few
+seconds after the keyboard connects. It uses `hcitool` from the `bluez`
+package:
+
+```sh
+sudo install -D -m 0755 scripts/bbz002-ble-interval /usr/local/libexec/bbz002-ble-interval
+sudo install -m 0644 udev/99-bbz002-ble-interval.rules /etc/udev/rules.d/
+sudo udevadm control --reload
+```
+
+It applies from the next connection. To remove it:
+
+```sh
+sudo rm /etc/udev/rules.d/99-bbz002-ble-interval.rules /usr/local/libexec/bbz002-ble-interval
+sudo udevadm control --reload
+```
+
 ## Install with DKMS
 
 DKMS builds the module for the running kernel and rebuilds it when a new
