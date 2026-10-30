@@ -21,7 +21,9 @@ set -- "$module_dir"/hid-apple.ko*
 owned_stock_module=false
 for module_file do
 	[ -e "$module_file" ] || continue
-	if ! dpkg-query -S "$module_file" >/dev/null 2>&1; then
+	# On usrmerged systems dpkg records the /usr/lib path, not /lib.
+	if ! dpkg-query -S "$module_file" >/dev/null 2>&1 &&
+		! dpkg-query -S "$(readlink -f -- "$module_file")" >/dev/null 2>&1; then
 		echo "Unpackaged hid-apple module found: $module_file" >&2
 		echo "Restore the distro package with:" >&2
 		echo "  sudo apt install --reinstall linux-modules-$(uname -r)" >&2
