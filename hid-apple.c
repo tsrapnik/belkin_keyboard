@@ -63,8 +63,12 @@
 #define APPLE_BBZ002_MAX_CONTACTS		4
 #define APPLE_BBZ002_MAX_X			2569
 #define APPLE_BBZ002_MAX_Y			1364
-/* Units per mm, from the descriptor's physical size of 173.4 x 92.1 mm. */
-#define APPLE_BBZ002_RES			15
+/* Units per mm. The descriptor claims 173.4 x 92.1 mm, but the touch surface
+ * measures 100 x 50 mm. With the claimed size, scrolling ran 1.8 times as far
+ * as the fingers moved.
+ */
+#define APPLE_BBZ002_RES_X			26
+#define APPLE_BBZ002_RES_Y			27
 /* Max displacement (x + y) after a report gap before a contact is a new touch. */
 #define APPLE_BBZ002_JUMP_DIST			150
 /* The scan time counts in 100 us. Each tick adds 0.1% extra, so a device clock
@@ -1125,8 +1129,8 @@ static int apple_bbz002_touchpad_init(struct hid_device *hdev)
 	input_set_capability(input, EV_KEY, BTN_RIGHT);
 	input_set_abs_params(input, ABS_MT_POSITION_X, 0, APPLE_BBZ002_MAX_X, 0, 0);
 	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, APPLE_BBZ002_MAX_Y, 0, 0);
-	input_abs_set_res(input, ABS_MT_POSITION_X, APPLE_BBZ002_RES);
-	input_abs_set_res(input, ABS_MT_POSITION_Y, APPLE_BBZ002_RES);
+	input_abs_set_res(input, ABS_MT_POSITION_X, APPLE_BBZ002_RES_X);
+	input_abs_set_res(input, ABS_MT_POSITION_Y, APPLE_BBZ002_RES_Y);
 
 	ret = input_mt_init_slots(input, APPLE_BBZ002_MAX_CONTACTS,
 				  INPUT_MT_POINTER | INPUT_MT_DROP_UNUSED |
