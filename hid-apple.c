@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/timer.h>
+#include <linux/version.h>
 #include <linux/string.h>
 #include <linux/leds.h>
 #include <dt-bindings/leds/common.h>
@@ -731,7 +732,21 @@ static int apple_fetch_battery(struct hid_device *hdev)
 	struct apple_sc *asc = hid_get_drvdata(hdev);
 	struct hid_report_enum *report_enum;
 	struct hid_report *report;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0)
+	struct hid_battery *bat = hid_get_battery(hdev);
 
+	if (!(asc->quirks & APPLE_RDESC_BATTERY) || !bat)
+		return -1;
+
+	report_enum = &hdev->report_enum[bat->report_type];
+	report = report_enum->report_id_hash[bat->report_id];
+
+	if (!report || report->maxfield < 1)
+		return -1;
+
+	if (bat->capacity == bat->max)
+		return -1;
+#else
 	if (!(asc->quirks & APPLE_RDESC_BATTERY) || !hdev->battery)
 		return -1;
 
@@ -743,6 +758,7 @@ static int apple_fetch_battery(struct hid_device *hdev)
 
 	if (hdev->battery_capacity == hdev->battery_max)
 		return -1;
+#endif
 
 	hid_hw_request(hdev, report, HID_REQ_GET_REPORT);
 	return 0;
