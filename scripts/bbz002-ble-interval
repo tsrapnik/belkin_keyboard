@@ -5,18 +5,20 @@
 # keyboard's address, e.g. ee:a7:1d:1a:ef:00.
 set -eu
 
-# Connection interval in units of 1.25 ms: 9 = 11.25 ms, just under the
-# touchpad's ~11.6 ms report period, so reports rarely arrive in pairs.
-interval=9
+# Connection interval in units of 1.25 ms: 6 = 7.5 ms, well under the
+# touchpad's 11.2 ms report period. Some controllers carry only one report per
+# connection event, so an interval near the report period never drains the
+# backlog left by a missed event and the touchpad lags further and further.
+interval=6
 
 address=$(printf '%s' "$1" | tr a-f A-F)
 
 # Wait for the keyboard's own parameter request, then override it. Try again
-# in case the request comes late.
+# in case the request comes late or the controller times out.
 for delay in 5 10; do
 	sleep "$delay"
 	handle=$(hcitool con | awk -v address="$address" '$3 == address { print $5 }')
 	[ -n "$handle" ] || exit 0
 	hcitool lecup --handle "$handle" --min "$interval" --max "$interval" \
-		--latency 23 --timeout 430
+		--latency 23 --timeout 430 || true
 done

@@ -1,2 +1,2 @@
-# Pin the BBZ002 Bluetooth LE connection interval to 15 ms after it connects.
+# Pin the BBZ002 Bluetooth LE connection interval to 7.5 ms after it connects.
 ACTION=="add", SUBSYSTEM=="hid", ENV{HID_ID}=="0005:000005AC:00000239", ENV{HID_NAME}=="BELKIN BBZ002", RUN+="/usr/bin/systemd-run --no-block --collect /usr/local/libexec/bbz002-ble-interval $env{HID_UNIQ}"
