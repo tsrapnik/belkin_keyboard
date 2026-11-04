@@ -71,10 +71,11 @@
 #define APPLE_BBZ002_RES_Y			27
 /* Max displacement (x + y) after a report gap before a contact is a new touch. */
 #define APPLE_BBZ002_JUMP_DIST			150
-/* The scan time counts in 100 us. Each tick adds 0.1% extra, so a device clock
+/* The scan time counts in 100 us. Each tick adds 2% extra, so a device clock
  * that runs slow cannot fall behind the host and timestamps keep catching up.
+ * One BBZ002 measured 0.8% slow, which outran the 0.1% used before.
  */
-#define APPLE_BBZ002_SCAN_TICK_NS		100100
+#define APPLE_BBZ002_SCAN_TICK_NS		102000
 
 static unsigned int touch_gap_ms = 100;
 
