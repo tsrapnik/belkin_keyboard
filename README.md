@@ -80,6 +80,82 @@ sudo rm /etc/udev/rules.d/99-bbz002-ble-interval.rules /usr/local/libexec/bbz002
 sudo udevadm control --reload
 ```
 
+### If the touchpad lags or disconnects
+
+These fixes depend on the PC's Bluetooth adapter rather than the keyboard, so
+the installer leaves them out. Try them only if needed.
+
+To see what the link is doing, record a trace while moving on the touchpad and
+stop it with Ctrl-C. Touchpad reports are the notifications on handle
+`0x0019`; their first two bytes are the device's scan time in 100 us steps.
+
+```sh
+sudo btmon -w bbz002.snoop
+btmon -r bbz002.snoop
+```
+
+#### Disable USB autosuspend
+
+A USB Bluetooth adapter that is suspended between reports adds delay and can
+drop the connection. Disable autosuspend for the current boot:
+
+```sh
+echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend
+for f in /sys/bus/usb/devices/*/power/control; do echo on | sudo tee "$f" >/dev/null; done
+```
+
+To keep it disabled, add `usbcore.autosuspend=-1` to the kernel command line.
+On Pop!_OS:
+
+```sh
+sudo kernelstub -a "usbcore.autosuspend=-1"
+```
+
+On systems with GRUB, add it to `GRUB_CMDLINE_LINUX_DEFAULT` in
+`/etc/default/grub` and run `sudo update-grub`. Undo it on Pop!_OS with
+`sudo kernelstub -d "usbcore.autosuspend=-1"`. Power managers such as TLP can
+turn autosuspend back on; with TLP, set `USB_AUTOSUSPEND=0` in
+`/etc/tlp.conf`.
+
+#### Older firmware for Realtek RTL8761B adapters
+
+Adapters with a Realtek RTL8761B chip, such as the TP-Link UB500, are reported
+to drop connections with "LMP Response Timeout" on the firmware shipped in
+`linux-firmware` ([Arch forum thread](https://bbs.archlinux.org/viewtopic.php?id=302528)).
+Check which chip and firmware the adapter loads:
+
+```sh
+journalctl -k -b | grep -E 'RTL: (loading|fw version)'
+```
+
+If it loads `rtl_bt/rtl8761bu_fw.bin` or `rtl_bt/rtl8761b_fw.bin`, the older
+firmware from the AUR package `rtl8761b-firmware` can be installed to
+`/lib/firmware/updates`. The kernel prefers that directory, and package
+updates do not overwrite it.
+
+```sh
+dir=$(mktemp -d)
+for f in rtl8761b_config.bin rtl8761b_fw.bin rtl8761bu_config.bin rtl8761bu_fw.bin; do
+	curl -sfL -o "$dir/$f" "https://aur.archlinux.org/cgit/aur.git/plain/$f?h=rtl8761b-firmware"
+done
+(cd "$dir" && md5sum -c <<'EOF'
+783db7913e59ab81adb335684d5f83fb  rtl8761b_config.bin
+973aa8ee84131d91a0475d8ce7fc680c  rtl8761b_fw.bin
+49951f548b87ea0258d128195ef6e0cf  rtl8761bu_config.bin
+6c3929e6a1d35f4206a8e9f763faf17e  rtl8761bu_fw.bin
+EOF
+) && sudo install -D -m 0644 -t /lib/firmware/updates/rtl_bt "$dir"/*.bin
+sudo modprobe -r btusb && sudo modprobe btusb
+```
+
+The firmware version in the kernel log then changes, for example from
+`0xdfc6d922` to `0x09a98a6b`. To return to the distribution firmware:
+
+```sh
+sudo rm -r /lib/firmware/updates/rtl_bt
+sudo modprobe -r btusb && sudo modprobe btusb
+```
+
 ## Install with DKMS
 
 DKMS builds the module for the running kernel and rebuilds it when a new
